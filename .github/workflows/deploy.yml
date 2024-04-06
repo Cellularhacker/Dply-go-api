@@ -1,0 +1,52 @@
+name: Deploy to server (Live)
+
+on:
+  release:
+    types: [ published ]
+
+jobs:
+  build_and_deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup go with cache
+        uses: magnetikonline/action-golang-cache@v5
+        with:
+          go-version-file: go.mod
+      - run: go version
+      - name: Install SSH Key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.SSH_KEY }}
+          name: id_rsa
+          known_hosts: ${{ secrets.KNOWN_HOSTS }}
+      - name: GO Build package
+        run: GOOS=linux GOARCH=amd64 go build -v ${{ secrets.OUTPUT_FILE_NAME }}
+      - name: TEST
+        run: pwd
+      - name: TEST
+        run: ls -al
+      - name: Upload binary file by SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          source: /home/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/${{ secrets.OUTPUT_FILE_NAME }}
+          target: ${{ secrets.REMOTE_DEPLOY_PATH }}/${{ secrets.OUTPUT_FILE_NAME }}_new
+          host: ${{ secrets.SSH_HOST }}
+          port: ${{ secrets.SSH_PORT }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+      - name: Start the service with new file
+        env:
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+        run: |
+          ssh $SSH_USER@$SSH_HOST -o StrictHostKeyChecking=no <<'ENDSSH'
+              export TERM=xterm-256color
+              source /etc/profile
+              source ~/.bashrc
+              sudo systemctl stop ${{ secrets.SERVICE_NAME }}
+              mv ${{ secrets.REMOTE_DEPLOY_PATH }}/${{ secrets.OUTPUT_FILE_NAME }}_new ${{ secrets.REMOTE_DEPLOY_PATH }}/${{ secrets.OUTPUT_FILE_NAME }}
+              sudo systemctl start ${{ secrets.SERVICE_NAME }}
+          ENDSSH
